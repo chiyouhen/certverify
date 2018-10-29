@@ -6,6 +6,9 @@ import OpenSSL
 import traceback
 import sys
 import datetime
+import pyasn1.codec.der.decoder
+import pyasn1.codec.native.encoder
+import pyasn1_modules.rfc2459
 
 class CertVerify:
     def __init__(self):
@@ -67,6 +70,22 @@ class CertVerify:
     def check_privatekey_match_request(self):
         self._pkey_match_request(self.privatekey, 'privatekey match request')
 
+    def sort_hostnames(self, hostnames):
+        rows = [h.split('.') for h in hostnames]
+        for r in rows:
+            r.reverse()
+        rows.sort()
+        for r in rows:
+            r.reverse()
+        lines = ['.'.join(r) for r in rows]
+        return lines
+
+    def decode_subject_alt_names(self, buf):
+        decoded_alt_names, rest = pyasn1.codec.der.decoder.decode(buf, asn1Spec=pyasn1_modules.rfc2459.SubjectAltName())
+        alt_name_lines = pyasn1.codec.native.encoder.encode(decoded_alt_names)
+        alt_names = [i['dNSName'].decode('utf-8') for i in alt_name_lines]
+        return self.sort_hostnames(alt_names)
+
     def output(self):
         print('Summary:')
         print('Subject:')
@@ -82,7 +101,11 @@ class CertVerify:
         for i in range(0, self.certificate.get_extension_count()):
             ext = self.certificate.get_extension(i)
             if ext.get_short_name() == b'subjectAltName':
-                print(f'{ext.get_short_name().decode("utf-8")}: {str(ext)}')
+                print('SubjectAltNames:')
+                alt_names = self.decode_subject_alt_names(ext.get_data())
+                max_width = max([len(h) for h in alt_names])
+                for h in alt_names:
+                    print(f'{h:>{4+max_width}}')
 
         notafter = datetime.datetime.strptime(self.certificate.get_notAfter().decode('utf-8'), '%Y%m%d%H%M%SZ')
         print(f'Not After: {notafter}')
